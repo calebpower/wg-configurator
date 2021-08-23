@@ -6,4 +6,5 @@
 *.out
 *.so
 *.test
+*.swp
 vendor/

@@ -20,6 +20,7 @@ import (
   "fmt"
   "log"
   "os"
+  "sort"
   "database/sql"
   "net/http"
   "github.com/gorilla/mux"
@@ -67,8 +68,8 @@ func createTables(db *sql.DB) {
       "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
       "label" TEXT NOT NULL );`,
     `CREATE TABLE IF NOT EXISTS member (
-      "group" INTEGER NOT NULL,
-      "host" INTEGER NOT NULL );`,
+      "gid" INTEGER NOT NULL,
+      "hid" INTEGER NOT NULL );`,
     `CREATE TABLE IF NOT EXISTS tunnel (
       "client" INTEGER NOT NULL,
       "target" INTEGER NOT NULL,
@@ -151,6 +152,125 @@ func removeHost(db *sql.DB, host *Host) error {
   return nil
 }
 
+func retrieveGroup(db *sql.DB, label string) (*Group, error) {
+  stmt, err := db.Prepare(`SELECT * FROM hostgroup WHERE label = ?`)
+  if err != nil {
+    log.Fatalln(err.Error())
+  }
+
+  var group Group
+  err = stmt.QueryRow(label).Scan(&group.ID, &group.Label)
+  if err != nil {
+    return nil, err
+  }
+
+  return &group, err
+}
+
+func retrieveAllGroupLabels(db *sql.DB) []string {
+  rows, err := db.Query(`SELECT DISTINCT label FROM hostgroup ORDER BY label ASC`)
+
+  if err != nil {
+    log.Fatalln(err.Error())
+  }
+
+  defer rows.Close()
+
+  var labels []string
+
+  for rows.Next() {
+    var label string
+    err = rows.Scan(&label)
+
+    if err != nil {
+      log.Fatalln(err.Error())
+    }
+
+    labels = append(labels, label)
+  }
+
+  return labels
+}
+
+func addGroup(db *sql.DB, group Group) error {
+  stmt, err := db.Prepare(`INSERT INTO hostgroup(label) VALUES (?)`)
+
+  if err == nil {
+    _, err = stmt.Exec(group.Label)
+  }
+
+  return err
+}
+
+func delGroup(db *sql.DB, group *Group) error {
+  stmt, err := db.Prepare(`DELETE FROM hostgroup WHERE id = ?`)
+
+  if err == nil {
+    _, err = stmt.Exec(group.ID)
+  }
+
+  return err
+}
+
+func getGroupAndHost(db *sql.DB, group, host string) (*Group, *Host) {
+  g, _ := retrieveGroup(db, group)
+  h, _ := retrieveHost(db, host)
+  return g, h
+}
+
+func retrieveMembers(db *sql.DB, group *Group) []string {
+  stmt, err := db.Prepare(`SELECT host.name FROM host
+      INNER JOIN member ON host.id = member.hid
+      WHERE member.gid = ?`)
+  if err != nil {
+    log.Fatalln(err.Error())
+  }
+
+  defer stmt.Close()
+
+  rows, err := stmt.Query(group.ID)
+  if err != nil {
+    log.Fatalln(err.Error())
+  }
+
+  defer rows.Close()
+
+  var members []string
+
+  for rows.Next() {
+    var member string
+    err = rows.Scan(&member)
+
+    if err != nil {
+      log.Fatalln(err.Error())
+    }
+
+    members = append(members, member)
+  }
+
+  return members
+}
+
+func addMember(db *sql.DB, group *Group, host *Host) error {
+  stmt, err := db.Prepare(`INSERT INTO member(gid, hid) VALUES (?, ?)`)
+
+  if err == nil {
+    _, err = stmt.Exec(group.ID, host.ID)
+  }
+
+  return err
+}
+
+func removeMember(db *sql.DB, group *Group, host *Host) error {
+  stmt, err := db.Prepare(`DELETE FROM member WHERE gid = ? AND hid = ?`)
+
+  if err == nil {
+    _, err = stmt.Exec(group.ID, host.ID)
+  }
+
+  return err
+}
+
 func homePage(w http.ResponseWriter, r *http.Request) {
   fmt.Fprintf(w, "ok")
 }
@@ -159,6 +279,11 @@ func handleRequests() {
   myRouter := mux.NewRouter().StrictSlash(true)
   myRouter.HandleFunc("/", homePage).Methods("GET")
   log.Fatal(http.ListenAndServe(":10000", myRouter))
+}
+
+func contains(haystack []string, needle string) bool {
+  i := sort.SearchStrings(haystack, needle)
+  return i < len(haystack) && haystack[i] == needle
 }
 
 func main() {
@@ -181,6 +306,7 @@ func main() {
     case "serve":
       fmt.Println("Received directive to serve.")
       handleRequests()
+
     case "addhost":
       if argLength != 6 {
         log.Fatal("Bad arg count. Expected six (6) args.")
@@ -203,6 +329,7 @@ func main() {
           log.Fatal(err.Error())
         }
       }
+
     case "delhost":
       if argLength != 2 {
         log.Fatal("Bad arg count. Expected two (2) args.")
@@ -215,20 +342,92 @@ func main() {
           log.Fatal(err.Error())
         }
       }
+
     case "addgroup":
+      if argLength != 2 {
+        log.Fatal("Bad arg count. Expected two (2) args.")
+      } else if group, _ := retrieveGroup(db, os.Args[2]); group != nil {
+        log.Fatal("A group with that label already exists.")
+      } else {
+        group := Group {
+          ID: 0,
+          Label: os.Args[2],
+        }
+
+        if err := addGroup(db, group); err == nil {
+          fmt.Println("Added new group.");
+        } else {
+          log.Fatal(err.Error())
+        }
+      }
+
     case "delgroup":
+      if argLength != 2 {
+        log.Fatal("Bad arg count. Expected two (2) args.")
+      } else if group, _ := retrieveGroup(db, os.Args[2]); group == nil {
+        log.Fatal("No group with that label exists currently.")
+      } else {
+        if err := delGroup(db, group); err == nil {
+          fmt.Println("Removed group.")
+        } else {
+          log.Fatal(err.Error())
+        }
+      }
+
     case "addmember":
+      if argLength != 3 {
+        log.Fatal("Bad arg count. Expected three (3) args.")
+      } else if group, host := getGroupAndHost(db, os.Args[3], os.Args[2]); group == nil || host == nil {
+        log.Fatal("Either the group or the host could not be found.")
+      } else if members := retrieveMembers(db, group); contains(members, host.Hostname) {
+        log.Fatal("That host is already a member of the group.")
+      } else {
+        if err := addMember(db, group, host); err == nil {
+          fmt.Println("Added member to group.")
+        } else {
+          log.Fatal(err.Error())
+        }
+      }
+
+
     case "delmember":
+      if argLength != 3 {
+        log.Fatal("Bad arg count. Expected three (3) args.")
+      } else if group, host := getGroupAndHost(db, os.Args[3], os.Args[2]); group == nil || host == nil {
+        log.Fatal("Either the group or the host could not be found.")
+      } else if members := retrieveMembers(db, group); !contains(members, host.Hostname) {
+        log.Fatal("That host isn't a member of the group.")
+      } else {
+        if err := removeMember(db, group, host); err == nil {
+          fmt.Println("Removed member from group.")
+        } else {
+          log.Fatal(err.Error())
+        }
+      }
+
     case "addtun":
+
     case "deltun":
+
     case "getconfig":
       if argLength != 1 {
         log.Fatal("Bad arg count. Expected one (1) arg.")
       } else {
+        fmt.Println("Hosts:")
         for _, hostname := range retrieveAllHostnames(db) {
-          fmt.Println(hostname)
+          fmt.Println("- " + hostname)
+        }
+
+        fmt.Println("Groups:")
+        for _, grouplabel := range retrieveAllGroupLabels(db) {
+          fmt.Println("- " + grouplabel)
+          group, _ := retrieveGroup(db, grouplabel)
+          for _, member := range retrieveMembers(db, group) {
+            fmt.Println("  - " + member)
+          }
         }
       }
+
     default:
       fmt.Println("Invalid argument.")
     }
