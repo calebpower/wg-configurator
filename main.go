@@ -328,7 +328,7 @@ func removeMember(db *sql.DB, group *Group, host *Host) error {
 func existsHHTun(db *sql.DB, hostA, hostB *Host) bool {
   stmtA, errA := db.Prepare(`SELECT * FROM tunnel_hh WHERE hid_a = ? AND hid_b = ?`)
   if errA == nil {
-    errA = stmtA.QueryRow(hostA.ID, hostB.ID).Scan()
+    errA = stmtA.QueryRow(hostA.ID, hostB.ID).Scan(&hostA.ID, &hostB.ID)
     if errA == nil {
       return true
     } else if errA != sql.ErrNoRows {
@@ -344,7 +344,7 @@ func existsHHTun(db *sql.DB, hostA, hostB *Host) bool {
 func existsGGTun(db *sql.DB, groupA, groupB *Group) bool {
   stmtA, errA := db.Prepare(`SELECT * FROM tunnel_gg WHERE gid_a = ? AND gid_b = ?`)
   if errA == nil {
-    errA = stmtA.QueryRow(groupA.ID, groupB.ID).Scan()
+    errA = stmtA.QueryRow(groupA.ID, groupB.ID).Scan(&groupA.ID, &groupB.ID)
     if errA == nil {
       return true
     } else if errA != sql.ErrNoRows {
@@ -360,7 +360,7 @@ func existsGGTun(db *sql.DB, groupA, groupB *Group) bool {
 func existsHGTun(db *sql.DB, host *Host, group *Group) bool {
   stmt, err := db.Prepare(`SELECT * FROM tunnel_gh WHERE gid = ? AND hid = ?`)
   if err == nil {
-    err = stmt.QueryRow(group.ID, host.ID).Scan()
+    err = stmt.QueryRow(group.ID, host.ID).Scan(&host.ID, &group.ID)
     if err == nil {
       return true
     } else if err != sql.ErrNoRows {
@@ -865,18 +865,34 @@ func main() {
           fmt.Println("- " + hostname + " (" + host.WireguardIP + ")")
           fmt.Println("  - Endpoint: " + host.PublicIP + ":" + host.WireguardPort)
           fmt.Println("  - Pubkey: " + host.PublicKey)
+          fmt.Println("  - Tunnels:")
+          hostTuns, groupTuns := getHostTuns(db, host)
+          for _, hostTun := range hostTuns {
+            fmt.Println("    - " + hostTun + " (host)")
+          }
+          for _, groupTun := range groupTuns {
+            fmt.Println("    - " + groupTun + " (group)")
+          }
         }
 
         fmt.Println("\nGroups:")
         for _, grouplabel := range retrieveAllGroupLabels(db) {
           fmt.Println("- " + grouplabel)
+          fmt.Println("  - Members:")
           group, _ := retrieveGroup(db, grouplabel)
           for _, member := range retrieveMembers(db, group) {
-            fmt.Println("  - " + member)
+            fmt.Println("    - " + member)
+          }
+          fmt.Println("  - Tunnels:")
+          hostTuns, groupTuns := getGroupTuns(db, group)
+          for _, hostTun := range hostTuns {
+            fmt.Println("    - " + hostTun + " (host)")
+          }
+          for _, groupTun := range groupTuns {
+            fmt.Println("    - " + groupTun + " (group)")
           }
         }
 
-        fmt.Println("\nTunnels:")
       }
 
     default:

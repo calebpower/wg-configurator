@@ -7,4 +7,5 @@
 *.so
 *.test
 *.swp
+wg-configurator
 vendor/
