@@ -24,7 +24,6 @@ import (
   "database/sql"
   "net/http"
   "github.com/gorilla/mux"
-
   _ "github.com/mattn/go-sqlite3"
 )
 
@@ -52,6 +51,7 @@ var (
   hosts []Host
   groups map[Group][]Host
   tunnel map[Host][]Tunnel
+  db *sql.DB
 )
 
 func createTables(db *sql.DB) {
@@ -373,6 +373,30 @@ func existsHGTun(db *sql.DB, host *Host, group *Group) bool {
   return false
 }
 
+func dedupe(sA []string) []string {
+  var deduped []string
+
+  for i := 0; i < len(sA); i++ {
+    if len(deduped) == 0 || deduped[len(deduped) - 1] != sA[i] {
+      deduped = append(deduped, sA[i])
+    }
+  }
+
+  return deduped
+}
+
+func delelem(sA []string, target string) []string {
+  var scrubbed []string
+
+  for i := 0; i < len(sA); i++ {
+    if sA[i] != target {
+      scrubbed = append(scrubbed, sA[i])
+    }
+  }
+
+  return scrubbed
+}
+
 func merge(sA, sB []string) []string {
   var merged []string
 
@@ -652,13 +676,53 @@ func unlinkHGTun(db *sql.DB, host *Host, group *Group) error {
   return err
 }
 
-func homePage(w http.ResponseWriter, r *http.Request) {
-  fmt.Fprintf(w, "ok")
+func routeIndex(w http.ResponseWriter, r *http.Request) {
+  fmt.Fprintf(w, "ok\n")
+}
+
+func routeHostConfig(w http.ResponseWriter, r *http.Request) {
+  vars := mux.Vars(r)
+  hostname := vars["host"]
+  if host, err := retrieveHost(db, hostname); err != nil {
+    fmt.Fprintf(w, "bad\n")
+  } else {
+    fmt.Fprintf(w, "[Interface]\n")
+    fmt.Fprintf(w, "PrivateKey = {{ PRIVATE_KEY }}\n")
+    fmt.Println(host.WireguardIP + "\n")
+    fmt.Fprintf(w, "Address = " + host.WireguardIP + "\n")
+    if host.WireguardPort == "" {
+      fmt.Fprintf(w, "DNS = {{ DNS }}\n")
+    } else {
+      fmt.Fprintf(w, "ListenPort = " + host.WireguardPort + "\n")
+    }
+
+    hostTuns, groupTuns := getHostTuns(db, host)
+    for _, groupLabel := range groupTuns {
+      group, _ := retrieveGroup(db, groupLabel)
+      hostTuns = merge(hostTuns, retrieveMembers(db, group))
+    }
+
+    hostTuns = dedupe(hostTuns)
+    hostTuns = delelem(hostTuns, hostname)
+
+    for _, peerName := range hostTuns {
+      peer, _ := retrieveHost(db, peerName)
+      fmt.Fprintf(w, "\n[Peer]\n")
+      fmt.Fprintf(w, "PublicKey = " + peer.PublicKey + "\n")
+      fmt.Fprintf(w, "AllowedIPs = " + peer.WireguardIP + "/32\n")
+      if peer.PublicIP != "" {
+        fmt.Fprintf(w, "Endpoint = " + peer.PublicIP + ":" + peer.WireguardPort + "\n")
+        fmt.Fprintf(w, "PersistentKeepalive = 20\n")
+      }
+    }
+
+  }
 }
 
 func handleRequests() {
   myRouter := mux.NewRouter().StrictSlash(true)
-  myRouter.HandleFunc("/", homePage).Methods("GET")
+  myRouter.HandleFunc("/", routeIndex).Methods("GET")
+  myRouter.HandleFunc("/hosts/{host}", routeHostConfig).Methods("GET")
   log.Fatal(http.ListenAndServe(":10000", myRouter))
 }
 
@@ -676,7 +740,7 @@ func main() {
     dbFile.Close()
   }
 
-  db, _ := sql.Open("sqlite3", "./wgconfig.db");
+  db, _ = sql.Open("sqlite3", "./wgconfig.db");
   defer db.Close()
   createTables(db)
 
