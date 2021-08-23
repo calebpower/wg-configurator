@@ -1,0 +1,10 @@
+WireGuard Configurator
+Copyright (c) 2021 Caleb L. Power. All rights reserved.
+
+This product depends on github.com/gorilla/mux, released under the
+BSD 3-Clause "New" or Revised License. No modifications were made.
+Copyright (c) 2012-2018 The Gorilla Authors. All rights reserved.
+
+This product depends on github.com/mattn/go-sqlite3, released under
+the MIT License. No modifications were made.
+Copyright (c) 2014 Yasuhiro Matsumoto.
