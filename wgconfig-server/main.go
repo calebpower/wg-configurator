@@ -688,7 +688,6 @@ func routeHostConfig(w http.ResponseWriter, r *http.Request) {
   } else {
     fmt.Fprintf(w, "[Interface]\n")
     fmt.Fprintf(w, "PrivateKey = {{ PRIVATE_KEY }}\n")
-    fmt.Println(host.WireguardIP + "\n")
     fmt.Fprintf(w, "Address = " + host.WireguardIP + "\n")
     if host.WireguardPort == "" {
       fmt.Fprintf(w, "DNS = {{ DNS }}\n")
@@ -764,7 +763,6 @@ func main() {
       if argLength != 5 && argLength != 7 {
         log.Fatal("Bad arg count. Expected five (5) or seven (7) args.")
       } else if host, _ := retrieveHost(db, os.Args[3]); host != nil {
-        fmt.Println(host)
         log.Fatal("A host with that name already exists.")
       } else {
         host := Host {

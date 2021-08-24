@@ -1,4 +1,4 @@
-module bitbucket.org/calebpower/wg-configurator
+module bitbucket.org/calebpower/wg-configurator/wgconfig-server
 
 go 1.15
 
