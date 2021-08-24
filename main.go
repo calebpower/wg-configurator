@@ -731,41 +731,49 @@ func contains(haystack []string, needle string) bool {
   return i < len(haystack) && haystack[i] == needle
 }
 
-func main() {
-  if _, err := os.Stat("wgconfig.db"); os.IsNotExist(err) {
-    dbFile, err := os.Create("wgconfig.db")
-    if err != nil {
-      log.Fatal(err.Error())
-    }
-    dbFile.Close()
+func ternary(q bool, t, f string) string {
+  if q {
+    return t
   }
+  return f
+}
 
-  db, _ = sql.Open("sqlite3", "./wgconfig.db");
-  defer db.Close()
-  createTables(db)
-
+func main() {
   argLength := len(os.Args[1:])
 
-  if argLength >= 1 {
-    switch(os.Args[1]) {
+  if argLength >= 2 {
+    dbFilename := os.Args[1] + ".db"
+    if _, err := os.Stat(dbFilename); os.IsNotExist(err) {
+      dbFile, err := os.Create(dbFilename)
+      if err != nil {
+        log.Fatal(err.Error())
+      }
+      dbFile.Close()
+    }
+
+    db, _ = sql.Open("sqlite3", "./" + dbFilename);
+    defer db.Close()
+    createTables(db)
+
+    switch(os.Args[2]) {
     case "serve":
       fmt.Println("Received directive to serve.")
       handleRequests()
 
     case "addhost":
-      if argLength != 6 {
-        log.Fatal("Bad arg count. Expected six (6) args.")
-      } else if host, _ := retrieveHost(db, os.Args[2]); host != nil {
+      if argLength != 5 && argLength != 7 {
+        log.Fatal("Bad arg count. Expected five (5) or seven (7) args.")
+      } else if host, _ := retrieveHost(db, os.Args[3]); host != nil {
         fmt.Println(host)
         log.Fatal("A host with that name already exists.")
       } else {
         host := Host {
           ID: 0,
-          Hostname: os.Args[2],
-          PublicKey: os.Args[3],
-          PublicIP: os.Args[5],
-          WireguardIP: os.Args[4],
-          WireguardPort: os.Args[6] }
+          Hostname: os.Args[3],
+          PublicKey: os.Args[4],
+          PublicIP: ternary(argLength == 7, os.Args[argLength - 1], ""),
+          WireguardIP: os.Args[5],
+          WireguardPort: ternary(argLength == 7, os.Args[argLength], "") }
 
         if err := addHost(db, host); err == nil {
           fmt.Println("Added new host.");
@@ -775,9 +783,9 @@ func main() {
       }
 
     case "delhost":
-      if argLength != 2 {
-        log.Fatal("Bad arg count. Expected two (2) args.")
-      } else if host, _ := retrieveHost(db, os.Args[2]); host == nil {
+      if argLength != 3 {
+        log.Fatal("Bad arg count. Expected three (3) args.")
+      } else if host, _ := retrieveHost(db, os.Args[3]); host == nil {
         log.Fatal("A host with that name is not known.")
       } else if err := removeHost(db, host); err == nil {
         fmt.Println("Removed host.")
@@ -786,14 +794,14 @@ func main() {
       }
 
     case "addgroup":
-      if argLength != 2 {
-        log.Fatal("Bad arg count. Expected two (2) args.")
-      } else if group, _ := retrieveGroup(db, os.Args[2]); group != nil {
+      if argLength != 3 {
+        log.Fatal("Bad arg count. Expected three (3) args.")
+      } else if group, _ := retrieveGroup(db, os.Args[3]); group != nil {
         log.Fatal("A group with that label already exists.")
       } else {
         group := Group {
           ID: 0,
-          Label: os.Args[2],
+          Label: os.Args[3],
         }
 
         if err := addGroup(db, group); err == nil {
@@ -804,9 +812,9 @@ func main() {
       }
 
     case "delgroup":
-      if argLength != 2 {
-        log.Fatal("Bad arg count. Expected two (2) args.")
-      } else if group, _ := retrieveGroup(db, os.Args[2]); group == nil {
+      if argLength != 3 {
+        log.Fatal("Bad arg count. Expected three (3) args.")
+      } else if group, _ := retrieveGroup(db, os.Args[3]); group == nil {
         log.Fatal("No group with that label exists currently.")
       } else if err := delGroup(db, group); err == nil {
         fmt.Println("Removed group.")
@@ -815,9 +823,9 @@ func main() {
       }
 
     case "addmember":
-      if argLength != 3 {
-        log.Fatal("Bad arg count. Expected three (3) args.")
-      } else if group, host := grabGroupAndHost(db, os.Args[3], os.Args[2]); group == nil || host == nil {
+      if argLength != 4 {
+        log.Fatal("Bad arg count. Expected four (4) args.")
+      } else if group, host := grabGroupAndHost(db, os.Args[4], os.Args[3]); group == nil || host == nil {
         log.Fatal("Either the group or the host could not be found.")
       } else if members := retrieveMembers(db, group); contains(members, host.Hostname) {
         log.Fatal("That host is already a member of the group.")
@@ -829,9 +837,9 @@ func main() {
 
 
     case "delmember":
-      if argLength != 3 {
-        log.Fatal("Bad arg count. Expected three (3) args.")
-      } else if group, host := grabGroupAndHost(db, os.Args[3], os.Args[2]); group == nil || host == nil {
+      if argLength != 4 {
+        log.Fatal("Bad arg count. Expected four (4) args.")
+      } else if group, host := grabGroupAndHost(db, os.Args[4], os.Args[3]); group == nil || host == nil {
         log.Fatal("Either the group or the host could not be found.")
       } else if members := retrieveMembers(db, group); !contains(members, host.Hostname) {
         log.Fatal("That host isn't a member of the group.")
@@ -842,9 +850,9 @@ func main() {
       }
 
     case "hhlink":
-      if argLength != 3 {
-        log.Fatal("Bad arg count. Expected three (3) args.")
-      } else if hostA, hostB := grabTwoHosts(db, os.Args[2], os.Args[3]); hostA == nil || hostB == nil {
+      if argLength != 4 {
+        log.Fatal("Bad arg count. Expected four (4) args.")
+      } else if hostA, hostB := grabTwoHosts(db, os.Args[3], os.Args[4]); hostA == nil || hostB == nil {
         log.Fatal("One or both of the specified hosts doesn't exist.")
       } else if existsHHTun(db, hostA, hostB) || existsHHTun(db, hostB, hostA) {
         log.Fatal("Those hosts are already linked.")
@@ -855,9 +863,9 @@ func main() {
       }
 
     case "hhunlink":
-      if argLength != 3 {
-        log.Fatal("Bad arg count. Expected three (3) args.")
-      } else if hostA, hostB := grabTwoHosts(db, os.Args[2], os.Args[3]); hostA == nil || hostB == nil {
+      if argLength != 4 {
+        log.Fatal("Bad arg count. Expected four (4) args.")
+      } else if hostA, hostB := grabTwoHosts(db, os.Args[3], os.Args[4]); hostA == nil || hostB == nil {
         log.Fatal("One or both of the specified hosts doesn't exist.")
       } else if !existsHHTun(db, hostA, hostB) && !existsHHTun(db, hostB, hostA) {
         log.Fatal("Those hosts are not currently linked.")
@@ -868,9 +876,9 @@ func main() {
       }
 
     case "gglink":
-      if argLength != 3 {
-        log.Fatal("Bad arg count. Expected three (3) args.")
-      } else if groupA, groupB := grabTwoGroups(db, os.Args[2], os.Args[3]); groupA == nil || groupB == nil {
+      if argLength != 4 {
+        log.Fatal("Bad arg count. Expected four (4) args.")
+      } else if groupA, groupB := grabTwoGroups(db, os.Args[3], os.Args[4]); groupA == nil || groupB == nil {
         log.Fatal("One or both of the specified groups doesn't exist.")
       } else if existsGGTun(db, groupA, groupB) || existsGGTun(db, groupB, groupA) {
         log.Fatal("Those groups are already linked.")
@@ -881,9 +889,9 @@ func main() {
       }
 
     case "ggunlink":
-      if argLength != 3 {
-        log.Fatal("Bad arg count. Expected three (3) args.")
-      } else if groupA, groupB := grabTwoGroups(db, os.Args[2], os.Args[3]); groupA == nil || groupB == nil {
+      if argLength != 4 {
+        log.Fatal("Bad arg count. Expected four (4) args.")
+      } else if groupA, groupB := grabTwoGroups(db, os.Args[3], os.Args[4]); groupA == nil || groupB == nil {
         log.Fatal("One or both of the specified groups doesn't exist.")
       } else if !existsGGTun(db, groupA, groupB) && !existsGGTun(db, groupB, groupA) {
         log.Fatal("Those groups are not currently linked.")
@@ -894,9 +902,9 @@ func main() {
       }
 
     case "hglink":
-      if argLength != 3 {
-        log.Fatal("Bad arg count. Expected three (3) args.")
-      } else if group, host := grabGroupAndHost(db, os.Args[3], os.Args[2]); group == nil || host == nil {
+      if argLength != 4 {
+        log.Fatal("Bad arg count. Expected four (4) args.")
+      } else if group, host := grabGroupAndHost(db, os.Args[4], os.Args[3]); group == nil || host == nil {
         log.Fatal("A specified host or group is missing.")
       } else if existsHGTun(db, host, group) {
         log.Fatal("The specified host and group are already linked.")
@@ -907,9 +915,9 @@ func main() {
       }
 
     case "hgunlink":
-      if argLength != 3 {
-        log.Fatal("Bad arg count. Expected three (3) args.")
-      } else if group, host := grabGroupAndHost(db, os.Args[3], os.Args[2]); group == nil || host == nil {
+      if argLength != 4 {
+        log.Fatal("Bad arg count. Expected four (4) args.")
+      } else if group, host := grabGroupAndHost(db, os.Args[4], os.Args[3]); group == nil || host == nil {
         log.Fatal("A specified host or group is missing.")
       } else if !existsHGTun(db, host, group) {
         log.Fatal("The specified host and group are not currently linked.")
@@ -920,14 +928,16 @@ func main() {
       }
 
     case "getconfig":
-      if argLength != 1 {
-        log.Fatal("Bad arg count. Expected one (1) arg.")
+      if argLength != 2 {
+        log.Fatal("Bad arg count. Expected two (2) args.")
       } else {
         fmt.Println("Hosts:")
         for _, hostname := range retrieveAllHostnames(db) {
           host, _ := retrieveHost(db, hostname)
           fmt.Println("- " + hostname + " (" + host.WireguardIP + ")")
-          fmt.Println("  - Endpoint: " + host.PublicIP + ":" + host.WireguardPort)
+          if host.PublicIP != "" {
+            fmt.Println("  - Endpoint: " + host.PublicIP + ":" + host.WireguardPort)
+          }
           fmt.Println("  - Pubkey: " + host.PublicKey)
           fmt.Println("  - Tunnels:")
           hostTuns, groupTuns := getHostTuns(db, host)
@@ -968,27 +978,27 @@ func main() {
   Copyright (c) 2021 Caleb L. Power.
   All rights reserved.
 
-  - serve the RESTful API.......... "serve"
+  - serve the RESTful API.......... "<env> serve"
 
-  - add a host..................... "addhost <hostname> <pubkey> <wg-ip> <pub-ip> <port>"
-  - remove a host.................. "delhost <hostname>"
+  - add a host..................... "<env> addhost <host> <pubkey> <wg-ip> <pub-ip> <port>"
+  - remove a host.................. "<env> delhost <host>"
 
-  - add a group.................... "addgroup <group>"
-  - remove a group................. "delgroup <group>"
+  - add a group.................... "<env> addgroup <env> <group>"
+  - remove a group................. "<env> delgroup <group>"
 
-  - add a host to a group.......... "addmember <host> <group>"
-  - remove a host from a group..... "delmember <host> <group>"
+  - add a host to a group.......... "<env> addmember <host> <group>"
+  - remove a host from a group..... "<env> delmember <host> <group>"
 
-  - add a host->host tunnel........ "hhlink <host> <host>"
-  - remove a host->host tunnel..... "hhunlink <host> <host>"
+  - add a host->host tunnel........ "<env> hhlink <host> <host>"
+  - remove a host->host tunnel..... "<env> hhunlink <host> <host>"
 
-  - add a host->group tunnel....... "hglink <host> <group>"
-  - remove a host->group tunnel.... "hgunlink <host> <group>"
+  - add a host->group tunnel....... "<env> hglink <host> <group>"
+  - remove a host->group tunnel.... "<env> hgunlink <host> <group>"
 
-  - add a group->group tunnel...... "gglink <group> <group>"
-  - remove a group->group tunnel... "ggunlink <group> <group>"
+  - add a group->group tunnel...... "<env> gglink <group> <group>"
+  - remove a group->group tunnel... "<env> ggunlink <group> <group>"
 
-  - get the current config......... "getconfig"
+  - get the current config......... "<env> getconfig"
       `)
   }
 }
