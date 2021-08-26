@@ -21,6 +21,7 @@ import (
   "log"
   "os"
   "sort"
+  "strings"
   "database/sql"
   "net/http"
   "github.com/gorilla/mux"
@@ -115,7 +116,10 @@ func createTables(db *sql.DB) {
       CONSTRAINT fk_gid
         FOREIGN KEY (gid)
         REFERENCES host_group(id)
-        ON DELETE CASCADE );` }
+        ON DELETE CASCADE );`,
+
+    `CREATE TABLE IF NOT EXISTS allowed_ip (
+      "addr" TEXT NOT NULL );` }
 
   for _, element := range mkTblSQL {
     statement, err := db.Prepare(element)
@@ -194,6 +198,50 @@ func removeHost(db *sql.DB, host *Host) error {
   return nil
 }
 
+func ipIsAllowed(db *sql.DB, addr string) bool {
+  stmt, err := db.Prepare(`SELECT * FROM allowed_ip WHERE addr = ?`)
+  if err == nil {
+    err = stmt.QueryRow(addr).Scan(&addr)
+    if err == nil {
+      return true
+    } else if err != sql.ErrNoRows {
+      log.Fatalln(err.Error())
+    }
+  } else {
+    log.Fatalln(err.Error())
+  }
+
+  return false
+}
+
+func allowIP(db *sql.DB, addr string) error {
+  stmt, err := db.Prepare(`INSERT INTO allowed_ip(addr) VALUES (?)`)
+  if err != nil {
+    return err
+  }
+
+  _, err = stmt.Exec(addr)
+  if err != nil {
+    return err
+  }
+
+  return nil
+}
+
+func revokeIP(db *sql.DB, addr string) error {
+  stmt, err := db.Prepare(`DELETE FROM allowed_ip WHERE addr = ?`)
+  if err != nil {
+    return err
+  }
+
+  _, err = stmt.Exec(addr)
+  if err != nil {
+    return err
+  }
+
+  return nil
+}
+
 func retrieveGroup(db *sql.DB, label string) (*Group, error) {
   stmt, err := db.Prepare(`SELECT * FROM host_group WHERE label = ?`)
   if err != nil {
@@ -207,6 +255,31 @@ func retrieveGroup(db *sql.DB, label string) (*Group, error) {
   }
 
   return &group, err
+}
+
+func retrieveAllowedIPs(db *sql.DB) []string {
+  rows, err := db.Query(`SELECT DISTINCT addr FROM allowed_ip ORDER BY addr ASC`)
+
+  if err != nil {
+    log.Fatalln(err.Error())
+  }
+
+  defer rows.Close()
+
+  var addrs []string
+
+  for rows.Next() {
+    var addr string
+    err = rows.Scan(&addr)
+
+    if err != nil {
+      log.Fatalln(err.Error())
+    }
+
+    addrs = append(addrs, addr)
+  }
+
+  return addrs
 }
 
 func retrieveAllGroupLabels(db *sql.DB) []string {
@@ -681,37 +754,65 @@ func routeIndex(w http.ResponseWriter, r *http.Request) {
 }
 
 func routeHostConfig(w http.ResponseWriter, r *http.Request) {
-  vars := mux.Vars(r)
-  hostname := vars["host"]
-  if host, err := retrieveHost(db, hostname); err != nil {
-    fmt.Fprintf(w, "bad\n")
+  var clientIPs []string
+  xRealIP := r.Header.Get("X-Real-Ip")
+  if xRealIP != "" {
+    clientIPs = append(clientIPs, xRealIP)
+  }
+  xForwardedFor := r.Header.Get("X-Forwarded-For")
+  for _, ip := range strings.Split(xForwardedFor, ", ") {
+    if ip != "" {
+      clientIPs = append(clientIPs, ip)
+    }
+  }
+  clientIPs = append(clientIPs, strings.Split(r.RemoteAddr, ":")[0])
+
+  badIP := false
+
+  for _, clientIP := range clientIPs {
+    //fmt.Println("Checking client IP " + clientIP)
+    if !ipIsAllowed(db, clientIP) {
+      fmt.Println("Bad IP = " + clientIP)
+      badIP = true
+      break
+    }
+  }
+
+  if badIP {
+    fmt.Fprintf(w, "nope")
   } else {
-    fmt.Fprintf(w, "[Interface]\n")
-    fmt.Fprintf(w, "PrivateKey = {{ PRIVATE_KEY }}\n")
-    fmt.Fprintf(w, "Address = " + host.WireguardIP + "\n")
-    if host.WireguardPort == "" {
-      fmt.Fprintf(w, "DNS = {{ DNS }}\n")
+    vars := mux.Vars(r)
+    hostname := vars["host"]
+    if host, err := retrieveHost(db, hostname); err != nil {
+      fmt.Fprintf(w, "bad\n")
     } else {
-      fmt.Fprintf(w, "ListenPort = " + host.WireguardPort + "\n")
-    }
+      fmt.Fprintf(w, "[Interface]\n")
+      fmt.Fprintf(w, "PrivateKey = {{ PRIVATE_KEY }}\n")
+      fmt.Fprintf(w, "Address = " + host.WireguardIP + "\n")
+      if host.WireguardPort == "" {
+        fmt.Fprintf(w, "DNS = {{ DNS }}\n")
+      } else {
+        fmt.Fprintf(w, "ListenPort = " + host.WireguardPort + "\n")
+      }
 
-    hostTuns, groupTuns := getHostTuns(db, host)
-    for _, groupLabel := range groupTuns {
-      group, _ := retrieveGroup(db, groupLabel)
-      hostTuns = merge(hostTuns, retrieveMembers(db, group))
-    }
+      hostTuns, groupTuns := getHostTuns(db, host)
+      for _, groupLabel := range groupTuns {
+        group, _ := retrieveGroup(db, groupLabel)
+        hostTuns = merge(hostTuns, retrieveMembers(db, group))
+      }
 
-    hostTuns = dedupe(hostTuns)
-    hostTuns = delelem(hostTuns, hostname)
+      hostTuns = dedupe(hostTuns)
+      hostTuns = delelem(hostTuns, hostname)
 
-    for _, peerName := range hostTuns {
-      peer, _ := retrieveHost(db, peerName)
-      fmt.Fprintf(w, "\n[Peer]\n")
-      fmt.Fprintf(w, "PublicKey = " + peer.PublicKey + "\n")
-      fmt.Fprintf(w, "AllowedIPs = " + peer.WireguardIP + "/32\n")
-      if peer.PublicIP != "" {
-        fmt.Fprintf(w, "Endpoint = " + peer.PublicIP + ":" + peer.WireguardPort + "\n")
-        fmt.Fprintf(w, "PersistentKeepalive = 20\n")
+      for _, peerName := range hostTuns {
+        peer, _ := retrieveHost(db, peerName)
+        fmt.Fprintf(w, "\n[Peer]\n")
+        fmt.Fprintf(w, "PublicKey = " + peer.PublicKey + "\n")
+        fmt.Fprintf(w, "AllowedIPs = " + peer.WireguardIP + "/32\n")
+        if peer.PublicIP != "" {
+          fmt.Fprintf(w, "Endpoint = " + peer.PublicIP + ":" + peer.WireguardPort + "\n")
+          fmt.Fprintf(w, "PersistentKeepalive = 20\n")
+        }
       }
     }
 
@@ -925,6 +1026,28 @@ func main() {
         log.Fatal(err.Error())
       }
 
+    case "allowip":
+      if argLength != 3 {
+        log.Fatal("Bad arg count. Expected three (3) args.")
+      } else if ipIsAllowed(db, os.Args[3]) {
+        log.Fatal("That IP is already allowed.")
+      } else if err := allowIP(db, os.Args[3]); err == nil {
+        fmt.Println("Successfully allowed access by that IP address.")
+      } else {
+        log.Fatal(err.Error())
+      }
+
+    case "revokeip":
+      if argLength != 3 {
+        log.Fatal("Bad arg count. Expected three (3) args.")
+      } else if !ipIsAllowed(db, os.Args[3]) {
+        log.Fatal("That IP is already not allowed.")
+      } else if err := revokeIP(db, os.Args[3]); err == nil {
+        fmt.Println("Successfully revoked access by that IP address.")
+      } else {
+        log.Fatal(err.Error())
+      }
+
     case "getconfig":
       if argLength != 2 {
         log.Fatal("Bad arg count. Expected two (2) args.")
@@ -965,6 +1088,11 @@ func main() {
           }
         }
 
+        fmt.Println("\nAllowed IPs Addresses:")
+        for _, addr := range retrieveAllowedIPs(db) {
+          fmt.Println("- " + addr)
+        }
+
       }
 
     default:
@@ -995,6 +1123,9 @@ func main() {
 
   - add a group->group tunnel...... "<env> gglink <group> <group>"
   - remove a group->group tunnel... "<env> ggunlink <group> <group>"
+
+  - add an IP to the allowlist .... "<env> allowip <ip>"
+  - revoke access from an IP ...... "<env> revokeip <ip>"
 
   - get the current config......... "<env> getconfig"
       `)
