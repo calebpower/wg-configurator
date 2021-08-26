@@ -39,3 +39,31 @@ This product should not be used in a production environment at this time.
 
 Contributions of good quality are welcome. However, please do not assume that
 pull requets will be automatically accepted.
+
+# Build and Execution
+
+This repository contains `wgconfig-server` (written in Go) and `wgconfig-agent`
+(written in Rust). The former serves to manage the various configurations for
+all machines in a particular environment, and the latter serves to update its
+respective host. Therefore, building requires that your environment contain
+both `go` and `rustc` (and `cargo` for the latter, for that matter).
+
+## wgconfig-server
+
+You can build this out by entering the `wgconfig-server` directory and
+executing `go install` or `go build` (the latter for portable builds). Then,
+execute the binary directly to see the various command-line arguments. Data is
+stored in a SQLite database (not my first choice, but I wanted to learn to use
+that as well), and the name of the SQLite database file corresponds to the
+environment that is specified. (An environment, in this case, corresponds to a
+WireGuard interface.)
+
+## wgconfig-agent
+
+You can build this one by entering the `wgconfig-agent` directory and
+executing `cargo build --release`. If you do that, the release binary will end
+up in the `target/release` folder. This one should probably run on a cron job.
+If the job executes successfully and the config was updated, an exit code of
+`0` will be returned. If the job executes successfully but the config was not
+updated, an exit code of `2` will return. Exit code `1` indicates PEBCAK
+(usually).
