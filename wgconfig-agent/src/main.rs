@@ -5,84 +5,90 @@ extern crate reqwest;
 use self::crypto::digest::Digest;
 use self::crypto::sha2::Sha256;
 use regex::Regex;
+use std::env;
 use std::fs;
 use std::path::Path;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+  let args: Vec<String> = env::args().collect();
+  assert_eq!(args.len(), 5, "Please specify four (4) args: <upstream> <host> <privkey> <config>");
 
-    // first, pull the most current config
+  println!("upstream = {}\nhost = {}\nprivkey = {}\nconfig = {}", &args[1], &args[2], &args[3], &args[4]);
 
-    let client = reqwest::Client::builder()
-        .build()?;
+  // to start, pull the most current config
 
-    let res = client
-        .get("http://127.0.0.1:10000/hosts/home-pc")
-        .send()
-        .await?;
+  let client = reqwest::Client::builder()
+      .build()?;
 
-    let wg_config = res
-        .text()
-        .await?;
+  let mut remote_config = args[1].to_owned();
+  remote_config.push_str("/hosts/");
+  remote_config.push_str(&args[2]);
 
-    // hash that config, which should already have a dummy privkey
+  let res = client
+      .get(&remote_config)
+      .send()
+      .await?;
 
-    let mut hasher = Sha256::new();
-    hasher.input_str(&wg_config);
-    let hex = hasher.result_str();
+  let wg_config = res
+      .text()
+      .await?;
 
-    println!("Network Config SHA256 = {}", hex);
+  // hash that config, which should already have a dummy privkey
 
-    // now, start looking at the config on the disk... first, see if it exists
+  let mut hasher = Sha256::new();
+  hasher.input_str(&wg_config);
+  let hex = hasher.result_str();
 
-    let disk_file = "./wg-test.conf";
-    let mut current = Path::new(&disk_file).exists();
+  println!("Network Config SHA256 = {}", hex);
 
-    let private_key = "MY_PRIVKEY";
+  // now, start looking at the config on the disk... first, see if it exists
 
-    // if it doesn't exist, then it's obviously not current
-    // if it does exist, it's considered current (for now)
+  let mut current = Path::new(&args[4]).exists();
 
-    if current {
-      // so, read the file
-      let contents = fs::read_to_string(&disk_file)
-          .expect("Something went wrong reading the file");
+  // if it doesn't exist, then it's obviously not current
+  // if it does exist, it's considered current (for now)
 
-      // file on the disk is going to have a real privkey, so yeet that for hashing
-      let mut regstr = "PrivateKey\\s*=\\s*".to_owned();
-      regstr.push_str(&private_key);
-      regstr.push_str("\n");
+  if current {
+    // so, read the file
+    let contents = fs::read_to_string(&args[4])
+        .expect("Something went wrong reading the file");
 
-      let re = Regex::new(&regstr).unwrap();
-      let transformed = re.replace_all(&contents, "PrivateKey = {{ PRIVATE_KEY }}\n");
+    // file on the disk is going to have a real privkey, so yeet that for hashing
+    let mut regstr = "PrivateKey\\s*=\\s*".to_owned();
+    regstr.push_str(&args[3]);
+    regstr.push_str("\n");
 
-      // hash the redacted disk config
-      hasher = Sha256::new();
-      hasher.input_str(&transformed);
-      let newhex = hasher.result_str();
-      println!("Current Config SHA256 = {}", newhex);
+    let re = Regex::new(&regstr).unwrap();
+    let transformed = re.replace_all(&contents, "PrivateKey = {{ PRIVATE_KEY }}\n");
 
-      // ultimately, disk file is current iff the hashes match
-      current = hex == newhex;
-    }
+    // hash the redacted disk config
+    hasher = Sha256::new();
+    hasher.input_str(&transformed);
+    let newhex = hasher.result_str();
+    println!("Current Config SHA256 = {}", newhex);
 
-    if !current {
-      // if we're updating the file, put the real key back
-      // (put that thing back where it came from, or so help me!)
-      // (it's a work in progress)
-      let mut replacement = "PrivateKey = ".to_owned();
-      replacement.push_str(&private_key);
-      replacement.push_str("\n");
+    // ultimately, disk file is current iff the hashes match
+    current = hex == newhex;
+  }
 
-      let re = Regex::new("PrivateKey\\s*=.*\n").unwrap();
-      let transformed = re.replace_all(&wg_config, &replacement);
+  if !current {
+    // if we're updating the file, put the real key back
+    // (put that thing back where it came from, or so help me!)
+    // (it's a work in progress)
+    let mut replacement = "PrivateKey = ".to_owned();
+    replacement.push_str(&args[3]);
+    replacement.push_str("\n");
 
-      fs::write(&disk_file, &*transformed)?;
+    let re = Regex::new("PrivateKey\\s*=.*\n").unwrap();
+    let transformed = re.replace_all(&wg_config, &replacement);
 
-      println!("Applied new configuration.");
-    } else {
-      println!("Config already up to date.");
-    }
+    fs::write(&args[4], &*transformed)?;
 
-    Ok(())
+    println!("Applied new configuration.");
+  } else {
+    println!("Config already up to date.");
+  }
+
+  Ok(())
 }
