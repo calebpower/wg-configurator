@@ -62,8 +62,12 @@ WireGuard interface.)
 
 You can build this one by entering the `wgconfig-agent` directory and
 executing `cargo build --release`. If you do that, the release binary will end
-up in the `target/release` folder. This one should probably run on a cron job.
-If the job executes successfully and the config was updated, an exit code of
-`0` will be returned. If the job executes successfully but the config was not
-updated, an exit code of `2` will return. Exit code `1` indicates PEBCAK
-(usually).
+up in the `target/release` folder.
+
+This one should probably run on a cron job, so here are some exit codes to
+assist with that:
+
+- 0 indicates that the job ran successfully, but no configs were changed
+- 1 indicates that the job ran, but could not retrieve the new config
+- 2 indicates that the job ran successfully and the configs were updated
+- 101 indicates that the user should read the instructions or something

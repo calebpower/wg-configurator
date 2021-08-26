@@ -15,6 +15,7 @@
  */
 
 extern crate crypto;
+extern crate quit;
 extern crate regex;
 extern crate reqwest;
 
@@ -26,11 +27,12 @@ use std::fs;
 use std::path::Path;
 
 #[tokio::main]
+#[quit::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
   let args: Vec<String> = env::args().collect();
   assert_eq!(args.len(), 5, "Please specify four (4) args: <upstream> <host> <privkey> <config>");
 
-  println!("upstream = {}\nhost = {}\nprivkey = {}\nconfig = {}", &args[1], &args[2], &args[3], &args[4]);
+  //println!("upstream = {}\nhost = {}\nprivkey = {}\nconfig = {}", &args[1], &args[2], &args[3], &args[4]);
 
   // to start, pull the most current config
 
@@ -102,6 +104,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     fs::write(&args[4], &*transformed)?;
 
     println!("Applied new configuration.");
+    quit::with_code(2);
   } else {
     println!("Config already up to date.");
   }
