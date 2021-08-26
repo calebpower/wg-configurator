@@ -19,6 +19,18 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for specific language governing permissions and
 limitations under the License.
 
+## About
+
+This project came about for two reasons. First, I needed to add the Go and Rust
+programming languages to my toolbox, and I tend to learn languages quickly when
+I apply the to something that's actually useful-- I don't like busy work.
+Second, I really wanted to stop manually reconfiguring WireGuard's
+configuration files for each individual machine when I could automate the
+process. Sure, I could probably work some NAT magic, and I still might in the
+future, but this seemed quicker, more useful (see reason #1), and ultimately,
+more fun. So, keep that in mind when reviewing the code quality-- it'll be
+cleaned up in the future (probably).
+
 ## Disclaimer
 
 This product should not be used in a production environment at this time.
