@@ -67,7 +67,7 @@ up in the `target/release` folder.
 This one should probably run on a cron job, so here are some exit codes to
 assist with that:
 
-- 0 indicates that the job ran successfully, but no configs were changed
+- 0 indicates that the job ran successfully and the configs were updated
 - 1 indicates that the job ran, but could not retrieve the new config
-- 2 indicates that the job ran successfully and the configs were updated
+- 2 indicates that the job ran successfully, but no configs were changed
 - 101 indicates that the user should read the instructions or something

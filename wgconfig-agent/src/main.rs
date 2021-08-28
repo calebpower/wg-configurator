@@ -104,9 +104,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     fs::write(&args[4], &*transformed)?;
 
     println!("Applied new configuration.");
-    quit::with_code(2);
   } else {
     println!("Config already up to date.");
+    quit::with_code(2);
   }
 
   Ok(())
