@@ -378,6 +378,38 @@ func retrieveMembers(db *sql.DB, group *Group) []string {
   return members
 }
 
+func retrieveMemberGroups(db *sql.DB, host *Host) []string {
+  stmt, err := db.Prepare(`SELECT host_group.label FROM host_group
+      INNER JOIN member ON host_group.id = member.gid
+      WHERE member.hid = ?`)
+  if err != nil {
+    log.Fatalln(err.Error())
+  }
+
+  defer stmt.Close()
+
+  rows, err := stmt.Query(host.ID)
+  if err != nil {
+    log.Fatalln(err.Error())
+  }
+
+  defer rows.Close()
+
+  var groups []string
+  for rows.Next() {
+    var group string
+    err = rows.Scan(&group)
+
+    if err != nil {
+      log.Fatalln(err.Error())
+    }
+
+    groups = append(groups, group)
+  }
+
+  return groups
+}
+
 func addMember(db *sql.DB, group *Group, host *Host) error {
   stmt, err := db.Prepare(`INSERT INTO member(gid, hid) VALUES (?, ?)`)
 
@@ -796,6 +828,14 @@ func routeHostConfig(w http.ResponseWriter, r *http.Request) {
       }
 
       hostTuns, groupTuns := getHostTuns(db, host)
+
+      for _, groupLabel := range retrieveMemberGroups(db, host) {
+        group, _ := retrieveGroup(db, groupLabel)
+        gHostTuns, gGroupTuns := getGroupTuns(db, group)
+        hostTuns = merge(hostTuns, gHostTuns)
+        groupTuns = merge(groupTuns, gGroupTuns)
+      }
+
       for _, groupLabel := range groupTuns {
         group, _ := retrieveGroup(db, groupLabel)
         hostTuns = merge(hostTuns, retrieveMembers(db, group))
