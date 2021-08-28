@@ -655,7 +655,7 @@ func getGroupTuns(db *sql.DB, group *Group) ([]string, []string) {
 
   ggStmtB, ggErrB := db.Prepare(`SELECT host_group.label FROM host_group
       INNER JOIN tunnel_gg ON host_group.id = tunnel_gg.gid_b
-      WHERE tunnel_gg.gid_b = ?
+      WHERE tunnel_gg.gid_a = ?
       ORDER BY host_group.label ASC`)
 
   if ggErrB != nil {
