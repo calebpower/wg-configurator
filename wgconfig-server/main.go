@@ -349,7 +349,8 @@ func grabTwoGroups(db *sql.DB, groupA, groupB string) (*Group, *Group) {
 func retrieveMembers(db *sql.DB, group *Group) []string {
   stmt, err := db.Prepare(`SELECT host.name FROM host
       INNER JOIN member ON host.id = member.hid
-      WHERE member.gid = ?`)
+      WHERE member.gid = ?
+      ORDER BY host.name ASC`)
   if err != nil {
     log.Fatalln(err.Error())
   }
@@ -382,7 +383,8 @@ func retrieveMembers(db *sql.DB, group *Group) []string {
 func retrieveMemberGroups(db *sql.DB, host *Host) []string {
   stmt, err := db.Prepare(`SELECT host_group.label FROM host_group
       INNER JOIN member ON host_group.id = member.gid
-      WHERE member.hid = ?`)
+      WHERE member.hid = ?
+      ORDER BY host_group.label ASC`)
   if err != nil {
     log.Fatalln(err.Error())
   }
@@ -803,7 +805,6 @@ func routeHostConfig(w http.ResponseWriter, r *http.Request) {
   badIP := false
 
   for _, clientIP := range clientIPs {
-    //fmt.Println("Checking client IP " + clientIP)
     if !ipIsAllowed(db, clientIP) {
       fmt.Println(time.Now(), ": Bad IP = ", clientIP)
       badIP = true
