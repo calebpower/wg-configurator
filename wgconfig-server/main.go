@@ -24,6 +24,7 @@ import (
   "strings"
   "database/sql"
   "net/http"
+  "time"
   "github.com/gorilla/mux"
   _ "github.com/mattn/go-sqlite3"
 )
@@ -804,7 +805,7 @@ func routeHostConfig(w http.ResponseWriter, r *http.Request) {
   for _, clientIP := range clientIPs {
     //fmt.Println("Checking client IP " + clientIP)
     if !ipIsAllowed(db, clientIP) {
-      fmt.Println("Bad IP = " + clientIP)
+      fmt.Println(time.Now(), ": Bad IP = ", clientIP)
       badIP = true
       break
     }
@@ -815,6 +816,7 @@ func routeHostConfig(w http.ResponseWriter, r *http.Request) {
   } else {
     vars := mux.Vars(r)
     hostname := vars["host"]
+    fmt.Println(time.Now(), ": Received request from ", clientIPs, " to pull host ", hostname)
     if host, err := retrieveHost(db, hostname); err != nil {
       fmt.Fprintf(w, "bad\n")
     } else {
@@ -1149,7 +1151,7 @@ func main() {
   - add a host..................... "<env> addhost <host> <pubkey> <wg-ip> <pub-ip> <port>"
   - remove a host.................. "<env> delhost <host>"
 
-  - add a group.................... "<env> addgroup <env> <group>"
+  - add a group.................... "<env> addgroup <group>"
   - remove a group................. "<env> delgroup <group>"
 
   - add a host to a group.......... "<env> addmember <host> <group>"
