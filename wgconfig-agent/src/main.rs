@@ -52,13 +52,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
       .text()
       .await?;
 
-  // hash that config, which should already have a dummy privkey
+  // go ahead and replace the privkey template with the actual privkey
+  let mut replacement = "PrivateKey = ".to_owned();
+  replacement.push_str(&args[3]);
+  replacement.push_str("\n");
 
+  let re = Regex::new("PrivateKey\\s*=.*\n").unwrap();
+  let transformed = re.replace_all(&wg_config, &replacement);
+
+  // then hash it
   let mut hasher = Sha256::new();
-  hasher.input_str(&wg_config);
-  let hex = hasher.result_str();
+  hasher.input_str(&transformed);
+  let remote_hex = hasher.result_str();
 
-  println!("Network Config SHA256 = {}", hex);
+  println!("Network Config SHA256 = {}", remote_hex);
 
   // now, start looking at the config on the disk... first, see if it exists
 
@@ -72,35 +79,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let contents = fs::read_to_string(&args[4])
         .expect("Something went wrong reading the file");
 
-    // file on the disk is going to have a real privkey, so yeet that for hashing
-    let mut regstr = "PrivateKey\\s*=\\s*".to_owned();
-    regstr.push_str(&args[3]);
-    regstr.push_str("\n");
-
-    let re = Regex::new(&regstr).unwrap();
-    let transformed = re.replace_all(&contents, "PrivateKey = {{ PRIVATE_KEY }}\n");
-
-    // hash the redacted disk config
+    // hash the on-disk config file, which should already have the privkey
     hasher = Sha256::new();
-    hasher.input_str(&transformed);
-    let newhex = hasher.result_str();
-    println!("Current Config SHA256 = {}", newhex);
+    hasher.input_str(&contents);
+    let local_hex = hasher.result_str();
+    println!("Current Config SHA256 = {}", local_hex);
 
     // ultimately, disk file is current iff the hashes match
-    current = hex == newhex;
+    current = local_hex == remote_hex;
   }
 
   if !current {
-    // if we're updating the file, put the real key back
-    // (put that thing back where it came from, or so help me!)
-    // (it's a work in progress)
-    let mut replacement = "PrivateKey = ".to_owned();
-    replacement.push_str(&args[3]);
-    replacement.push_str("\n");
-
-    let re = Regex::new("PrivateKey\\s*=.*\n").unwrap();
-    let transformed = re.replace_all(&wg_config, &replacement);
-
     fs::write(&args[4], &*transformed)?;
 
     println!("Applied new configuration.");
